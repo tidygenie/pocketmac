@@ -68,6 +68,17 @@ final class PrivacyMode {
         }
     }
 
+    /// App is quitting: never leave the screen dark or a lock pending.
+    func prepareForQuit() {
+        queue.sync {
+            stopKeepDark()
+            pendingFinish?.cancel()
+            pendingFinish = nil
+            connected = false
+            restoreBrightness()
+        }
+    }
+
     /// Lid opened/closed or a monitor came/went.
     func displaysChanged() {
         queue.asyncAfter(deadline: .now() + 1) {

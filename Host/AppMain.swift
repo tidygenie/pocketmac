@@ -58,10 +58,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         PrivacyMode.shared.recoverOnLaunch()
         VirtualDisplayManager.shared.startMonitoring()
 
-        // Re-apply lid mode preference after a reboot (pmset setting persists, but keep them in sync).
-        if config.lidModeWanted && !SystemControl.sleepDisabled() && SystemControl.helperInstalled {
-            SystemControl.setLidMode(true, allowPrompt: false)
+        // Lid-closed mode belongs to the running app: it's switched off on Quit and back on here.
+        if !isTestInstance {
+            if SystemControl.sleepDisabled() && !config.lidModeWanted {
+                config.lidModeWanted = true      // it's on (set earlier / elsewhere): Quit will turn it off
+            } else if config.lidModeWanted && !SystemControl.sleepDisabled() && SystemControl.helperInstalled {
+                SystemControl.setLidMode(true, allowPrompt: false)
+            }
         }
+        // `kill`, logout and shutdown send SIGTERM: quit cleanly so lid mode is switched off too.
+        signal(SIGTERM, SIG_IGN)
+        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        term.setEventHandler { NSApp.terminate(nil) }
+        term.resume()
+        termSource = term
 
         NSLog("PocketMac Host ready. ID \(DeviceID.pretty(config.deviceID)), port \(PocketMacPort)")
         if ProcessInfo.processInfo.environment["POCKETMAC_HEADLESS"] != nil { return }
@@ -98,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         } else {
             add(menu, "Pair new iPhone (5 min)", #selector(openPairing))
         }
-        let lid = NSMenuItem(title: "Keep running with lid closed", action: #selector(toggleLid), keyEquivalent: "")
+        let lid = NSMenuItem(title: "Keep running with lid closed (until Quit)", action: #selector(toggleLid), keyEquivalent: "")
         lid.target = self
         lid.state = SystemControl.sleepDisabled() ? .on : .off
         menu.addItem(lid)
@@ -132,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func confirmLidMode() -> Bool {
         let a = NSAlert()
         a.messageText = "Keep the Mac running with the lid closed?"
-        a.informativeText = "macOS will not sleep at all until you turn this off — even in a bag. Don't put a running Mac in a closed bag; it can get hot. PocketMac turns it off automatically when the battery drops to \(config.batteryGuardPercent)% (needs the helper)."
+        a.informativeText = "macOS will not sleep at all until you turn this off or quit PocketMac Host — even in a bag. Don't put a running Mac in a closed bag; it can get hot. PocketMac turns it off automatically when the battery drops to \(config.batteryGuardPercent)% (needs the helper)."
         a.addButton(withTitle: "Turn On")
         a.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
@@ -169,7 +179,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         return false
     }
 
-    @objc private func quit() { NSApp.terminate(nil) }
+    private var termSource: DispatchSourceSignal?
+    private var lidHandledOnQuit = false
+    private var isTestInstance: Bool { ProcessInfo.processInfo.environment["POCKETMAC_CONFIG_DIR"] != nil }
+
+    /// Quit from the menu: lid-closed mode off first (so closing the lid sleeps the Mac again).
+    @objc private func quit() {
+        if !isTestInstance && SystemControl.sleepDisabled() {
+            if !SystemControl.setLidMode(false, allowPrompt: true) {
+                let a = NSAlert()
+                a.messageText = "Lid-closed mode is still on"
+                a.informativeText = "It couldn't be turned off, so your Mac still won't sleep when you close the lid. Quit anyway?"
+                a.addButton(withTitle: "Quit Anyway")
+                a.addButton(withTitle: "Cancel")
+                NSApp.activate(ignoringOtherApps: true)
+                if a.runModal() != .alertFirstButtonReturn { return }
+            }
+        }
+        lidHandledOnQuit = true
+        NSApp.terminate(nil)
+    }
+
+    /// Every way of quitting ends here (menu, logout, shutdown, `kill`).
+    func applicationWillTerminate(_ notification: Notification) {
+        PrivacyMode.shared.prepareForQuit()
+        server.disconnectAll()
+        if !isTestInstance && !lidHandledOnQuit && SystemControl.sleepDisabled() && SystemControl.helperInstalled {
+            SystemControl.setLidMode(false, allowPrompt: false)   // silent path only — no prompts during logout
+        }
+    }
 }
 
 // MARK: - Settings window
@@ -293,7 +331,7 @@ struct SettingsView: View {
                     m.lidOn = SystemControl.sleepDisabled()
                     VirtualDisplayManager.shared.evaluate()
                 }))
-                Text("Uses `pmset disablesleep` (asks for your Mac password). When the lid is closed PocketMac adds a virtual screen shaped for your iPhone, so you still see and control a full desktop.")
+                Text("Stays on only while PocketMac Host is running: quitting it turns this off so closing the lid sleeps the Mac again, and it comes back on next launch. Uses `pmset disablesleep` (asks for your Mac password unless the helper below is installed). When the lid is closed PocketMac adds a virtual screen shaped for your iPhone, so you still see and control a full desktop.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     if m.helper {

@@ -18,5 +18,5 @@ ID=$(tools/test-host.sh "$T" 47811 | awk '{print $2}')
 rm -f "$T/catalyst.png"
 POCKETMAC_AUTOCONNECT="$ID|testpass123|127.0.0.1|47811" POCKETMAC_DUMP="$T/catalyst.png" \
   "$APP/Contents/MacOS/PocketMac" 2>&1 | grep PMDEBUG || true
-pkill -f PocketMacHost || true
+kill "$(cat "$T/host.pid")" 2>/dev/null || true
 ls -la "$T/catalyst.png"

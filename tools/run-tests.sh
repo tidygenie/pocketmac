@@ -36,6 +36,6 @@ t "fake Mac (ID doesn't match key) is detected" build/pmtest --id "1N81-1EPB-JZX
 for i in 2 3 4; do t "wrong guess $i" build/pmtest --id "$ID" --password guess$i "${P[@]}" --identity "$T/A.key" --expect-fail badCredentials; done
 t "5th wrong guess → locked out (30 s, doubling)" build/pmtest --id "$ID" --password guess5 "${P[@]}" --identity "$T/A.key" --expect-fail lockedOut
 t "even the right password is refused during lockout" build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/A.key" --expect-fail lockedOut
-pkill -f "PocketMacHost" 2>/dev/null
+kill "$(cat "$T/host.pid")" 2>/dev/null
 echo; echo "PASSED $pass  FAILED $fail"
 [ $fail -eq 0 ]
