@@ -1,0 +1,46 @@
+# Builds the iPhone app in the cloud (GitHub's Macs have Xcode) and uploads an
+# UNSIGNED PocketMac.ipa. Download it from the run's "Artifacts" section, then
+# install over USB with Sideloadly or 3uTools — they sign it with your Apple ID.
+name: Build iPhone app (.ipa)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd iOS && xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          cd iOS
+          xcodebuild -project PocketMac.xcodeproj -scheme PocketMac -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -40
+          test -d build/Build/Products/Release-iphoneos/PocketMac.app
+
+      - name: Package .ipa
+        run: |
+          cd iOS/build/Build/Products/Release-iphoneos
+          rm -rf Payload && mkdir Payload && cp -R PocketMac.app Payload/
+          zip -qry PocketMac.ipa Payload
+          ls -la PocketMac.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketMac-ipa
+          path: iOS/build/Build/Products/Release-iphoneos/PocketMac.ipa
+          if-no-files-found: error
