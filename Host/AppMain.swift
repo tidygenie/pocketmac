@@ -172,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         guard (notification.object as? NSWindow) === settingsWindow else { return }
         settingsWindow?.contentViewController = nil
         settingsWindow = nil
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) { MemoryRelief.now() }
     }
 
     /// Opening the app again from Finder/Spotlight shows the settings.
@@ -415,6 +416,11 @@ final class SettingsModel: ObservableObject {
 
 /// "Start at login" = a launchd agent that also restarts the app if it ever crashes
 /// (falls back to a plain login item if macOS refuses the agent).
+/// Hands memory that was freed (settings window, video buffers) back to macOS.
+enum MemoryRelief {
+    static func now() { malloc_zone_pressure_relief(nil, 0) }
+}
+
 enum LoginItem {
     static let agent = SMAppService.agent(plistName: "com.nareshchoudhary.pocketmac.host.plist")
     static var isEnabled: Bool { agent.status == .enabled || SMAppService.mainApp.status == .enabled }

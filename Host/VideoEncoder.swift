@@ -92,8 +92,13 @@ final class VideoEncoder {
 
     private static func package(_ sb: CMSampleBuffer, codec: VideoCodec) -> EncodedFrame? {
         guard let bb = CMSampleBufferGetDataBuffer(sb) else { return nil }
-        let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[CFString: Any]]
-        let notSync = (attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool) ?? false
+        var notSync = false
+        if let arr = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false), CFArrayGetCount(arr) > 0 {
+            let dict = unsafeBitCast(CFArrayGetValueAtIndex(arr, 0), to: CFDictionary.self)
+            if let v = CFDictionaryGetValue(dict, Unmanaged.passUnretained(kCMSampleAttachmentKey_NotSync).toOpaque()) {
+                notSync = CFBooleanGetValue(unsafeBitCast(v, to: CFBoolean.self))
+            }
+        }
         let key = !notSync
 
         let len = CMBlockBufferGetDataLength(bb)

@@ -118,6 +118,7 @@ final class HostServer {
             let reason: PrivacyMode.EndReason = s.closedLocally ? .local
                 : (!s.pausedByPhone && (s.closeError == nil || wasReset)) ? .userDisconnected : .dropped
             PrivacyMode.shared.sessionEnded(reason)
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { MemoryRelief.now() }
             NSLog("PocketMac: session ended (\(reason))")
             notifyUI()
         }
@@ -222,7 +223,10 @@ final class HostServer {
             }
         case .ping(let t): s.send(.pong(t))
         }
-        if !InputInjector.hasPermission, m.isInput { warnAccessibilityOnce(s) }
+        if m.isInput {
+            streamer.noteInput()
+            if !InputInjector.hasPermission { warnAccessibilityOnce(s) }
+        }
     }
 
     private var warnedAccessibility = false
@@ -245,8 +249,8 @@ final class HostServer {
         var lastMove = monotonicMicros(), lastClip = monotonicMicros(), lastStat = monotonicMicros()
         func setRate(_ f: Bool) {
             fast = f
-            t.schedule(deadline: .now() + (f ? 1.0 / 15 : 0.5), repeating: f ? 1.0 / 15 : 0.5,
-                       leeway: f ? .milliseconds(5) : .milliseconds(150))
+            t.schedule(deadline: .now() + (f ? 1.0 / 15 : 1.0), repeating: f ? 1.0 / 15 : 1.0,
+                       leeway: f ? .milliseconds(5) : .milliseconds(300))
         }
         setRate(false)
         t.setEventHandler { [weak self] in
@@ -260,14 +264,14 @@ final class HostServer {
             } else if fast && now - lastMove > 1_500_000 {
                 setRate(false)
             }
-            if now - lastClip > 1_500_000 { lastClip = now; self.checkClipboard(s) }
+            if now - lastClip > 2_000_000 { lastClip = now; self.checkClipboard(s) }
             if now - lastStat > 5_000_000 { lastStat = now; self.sendStatus(force: false) }
         }
         t.resume()
         statusTimer = t
         // Keep macOS from App-Napping capture/encode while someone is controlling the Mac.
         if napActivity == nil {
-            napActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+            napActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated],
                                                                 reason: "PocketMac remote session")
         }
     }

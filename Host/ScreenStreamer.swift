@@ -134,6 +134,9 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: Capture
 
     private func resetFlow() {
+        paceWork?.cancel()
+        paceWork = nil
+        smallStreak = 0
         inFlight.removeAll()
         encoding = 0
         pending = nil
@@ -239,9 +242,13 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Read the frame status straight from the CF dictionary (no per-frame Swift bridging).
         guard type == .screen, stream === self.stream,
-              let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let raw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
+              let arr = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false), CFArrayGetCount(arr) > 0
+        else { return }
+        let dict = unsafeBitCast(CFArrayGetValueAtIndex(arr, 0), to: CFDictionary.self)
+        guard let raw = CFDictionaryGetValue(dict, Unmanaged.passUnretained(Self.statusKey).toOpaque()),
+              unsafeBitCast(raw, to: NSNumber.self).intValue == SCFrameStatus.complete.rawValue,
               let pb = CMSampleBufferGetImageBuffer(sb) else { return }
         handle(pb)
     }
@@ -268,22 +275,49 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private var canEncode: Bool { encoding == 0 && inFlight.count < maxInFlight }
 
+    private static let statusKey = SCStreamFrameInfo.status.rawValue as CFString
+
+    // Smart frame rate: full speed while the phone is touching/typing or something big moves;
+    // 10 fps when only small things animate by themselves (spinner, blinking caret, clock).
+    private var lastInputMicros: UInt64 = 0
+    private var lastSentMicros: UInt64 = 0
+    private var smallStreak = 0
+    private var paceWork: DispatchWorkItem?
+
+    /// Called for every touch / key from the phone.
+    func noteInput() { queue.async { self.lastInputMicros = monotonicMicros() } }
+
+    private var minFrameGapMicros: UInt64 {
+        if monotonicMicros() - lastInputMicros < 800_000 { return 0 }
+        return smallStreak >= 4 ? 100_000 : 0
+    }
+
     private func handle(_ pb: CVPixelBuffer) {
         guard running else { return }
         refineWork?.cancel()
         refinePasses = 0
         lastBuffer = pb
         guard !paused else { return }
-        if canEncode {
-            encode(pb)
-        } else {
-            if pending != nil { replacedSinceCheck += 1 }
-            pending = pb
-        }
+        if pending != nil { replacedSinceCheck += 1 }
+        pending = pb
+        pump()
     }
 
     private func pump() {
-        guard running, !paused, canEncode, let p = pending else { return }
+        guard running, !paused, canEncode, pending != nil else { return }
+        let due = lastSentMicros + minFrameGapMicros
+        let now = monotonicMicros()
+        if now < due {
+            // Too soon for a quiet screen: keep only the newest frame and send it at the next slot.
+            guard paceWork == nil else { return }
+            let w = DispatchWorkItem { [weak self] in self?.paceWork = nil; self?.pump() }
+            paceWork = w
+            queue.asyncAfter(deadline: .now() + .microseconds(Int(due - now)), execute: w)
+            return
+        }
+        paceWork?.cancel()
+        paceWork = nil
+        let p = pending!
         pending = nil
         encode(p)
     }
@@ -343,6 +377,10 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         framesSent += 1
         bytesSent += out.data.count
         sentSinceCheck += 1
+        lastSentMicros = monotonicMicros()
+        // "Small" = a tiny update relative to the picture size (≈ 4 KB at 1920×1248).
+        let pixels = encoder.map { Int($0.width) * Int($0.height) } ?? 0
+        smallStreak = (!out.keyframe && out.data.count < max(1500, pixels / 600)) ? smallStreak + 1 : 0
         if pending != nil { pump() } else { scheduleRefine() }
     }
 
