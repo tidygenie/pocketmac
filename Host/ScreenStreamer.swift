@@ -312,13 +312,25 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
+    private var encodeFailures = 0
+
     private func encoded(_ out: EncodedFrame?, generation: Int, wantedKey: Bool) {
         encoding = max(0, encoding - 1)
         guard running, generation == captureGeneration else { return }
         guard let out else {
             if wantedKey { forceKeyframe = true }
+            encodeFailures += 1
+            if encodeFailures >= 3 {
+                // e.g. the hardware encoder was reset by sleep/wake: build a fresh one.
+                NSLog("PocketMac: encoder failing, recreating it")
+                encoder = nil
+                encodeFailures = 0
+                forceKeyframe = true
+                if pending == nil { pending = lastBuffer }
+            }
             pump(); return
         }
+        encodeFailures = 0
         if out.keyframe, let fmt = out.format, fmt != lastSentFormat {
             sink?(.videoFormat(fmt))
             lastSentFormat = fmt

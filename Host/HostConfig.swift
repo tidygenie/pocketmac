@@ -17,6 +17,12 @@ private struct HostConfigFile: Codable {
     var devices: [PairedDevice]
     var lidModeWanted: Bool
     var batteryGuardPercent: Int
+    // Added later — optional so existing config files (and the Mac ID) keep loading.
+    var darkScreenWhileConnected: Bool?
+    var lockOnDisconnect: Bool?
+    var lockGraceSeconds: Int?
+    var restoreBrightnessSteps: Int?
+    var screenDarkenedByUs: Bool?
 }
 
 /// Persistent host state: identity key, password verifier, paired iPhones.
@@ -156,5 +162,37 @@ final class HostConfig: ObservableObject {
     var batteryGuardPercent: Int {
         get { read { $0.batteryGuardPercent } }
         set { mutate { $0.batteryGuardPercent = max(5, min(50, newValue)) } }
+    }
+
+    // MARK: Privacy while remote
+
+    /// Turn the Mac's own screen dark while an iPhone is connected.
+    var darkScreenWhileConnected: Bool {
+        get { read { $0.darkScreenWhileConnected ?? true } }
+        set { mutate { $0.darkScreenWhileConnected = newValue } }
+    }
+
+    /// Lock the Mac when the iPhone disconnects.
+    var lockOnDisconnect: Bool {
+        get { read { $0.lockOnDisconnect ?? true } }
+        set { mutate { $0.lockOnDisconnect = newValue } }
+    }
+
+    /// After an unexpected drop (network change, app in background), wait this long before locking.
+    var lockGraceSeconds: Int {
+        get { read { $0.lockGraceSeconds ?? 30 } }
+        set { mutate { $0.lockGraceSeconds = max(10, min(300, newValue)) } }
+    }
+
+    /// Brightness steps (out of 16) to bring the screen back to afterwards.
+    var restoreBrightnessSteps: Int {
+        get { read { $0.restoreBrightnessSteps ?? 11 } }
+        set { mutate { $0.restoreBrightnessSteps = max(2, min(16, newValue)) } }
+    }
+
+    /// Remembered across crashes/restarts so the screen is never left dark by accident.
+    var screenDarkenedByUs: Bool {
+        get { read { $0.screenDarkenedByUs ?? false } }
+        set { mutate { $0.screenDarkenedByUs = newValue } }
     }
 }

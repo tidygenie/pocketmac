@@ -109,7 +109,16 @@ final class HostServer {
             connectedDevice = nil
             connectedAddress = nil
             DispatchQueue.main.async { SystemControl.holdAwake(false) }
-            NSLog("PocketMac: session ended")
+            // ✕ on the phone = clean close with no pause first. A pause (app sent to the
+            // background) or a network error counts as a drop and gets a grace period.
+            // Closing while video is still arriving can turn the phone's normal close into a
+            // TCP reset, so a reset also counts as ✕. A real network drop ends in a timeout.
+            var wasReset = false
+            if let nw = s.closeError as? NWError, case let .posix(code) = nw { wasReset = code == .ECONNRESET }
+            let reason: PrivacyMode.EndReason = s.closedLocally ? .local
+                : (!s.pausedByPhone && (s.closeError == nil || wasReset)) ? .userDisconnected : .dropped
+            PrivacyMode.shared.sessionEnded(reason)
+            NSLog("PocketMac: session ended (\(reason))")
             notifyUI()
         }
     }
@@ -117,11 +126,11 @@ final class HostServer {
     /// Kick a revoked device off immediately.
     func disconnect(devicePublicKey: Data) {
         queue.async {
-            if self.active?.deviceKey == devicePublicKey { self.active?.close() }
+            if let a = self.active, a.deviceKey == devicePublicKey { a.closedLocally = true; a.close() }
         }
     }
 
-    func disconnectAll() { queue.async { self.active?.close() } }
+    func disconnectAll() { queue.async { self.active?.closedLocally = true; self.active?.close() } }
 
     // MARK: Handshake policy (called on queue)
 
@@ -166,6 +175,7 @@ final class HostServer {
         connectedDevice = s.deviceName
         connectedAddress = s.channel.framed.remoteDescription
         DispatchQueue.main.async { SystemControl.holdAwake(true) }
+        PrivacyMode.shared.sessionStarted()
         NSLog("PocketMac: \(s.deviceName) connected from \(connectedAddress ?? "?")")
         startStatusTimer()
         notifyUI()
@@ -187,7 +197,9 @@ final class HostServer {
             sendStatus(force: true)
         case .frameAck(let id): streamer.ack(id)
         case .requestKeyframe: streamer.requestKeyframe()
-        case .setPaused(let p): streamer.setPaused(p)
+        case .setPaused(let p):
+            s.pausedByPhone = p
+            streamer.setPaused(p)
         case let .mouseMove(x, y): input.move(x: x, y: y)
         case let .mouseButton(b, down, x, y, clicks, flags):
             input.button(b, down: down, x: x, y: y, clicks: clicks, flags: flags)
@@ -222,28 +234,60 @@ final class HostServer {
 
     // MARK: Periodic status, cursor, clipboard (only while connected)
 
+    /// While connected: pointer position (15×/s only while it's moving, 2×/s otherwise),
+    /// clipboard every 1.5 s, status every 5 s. Slow ticks have leeway so macOS can batch them.
     private func startStatusTimer() {
         stopStatusTimer()
         lastStatus = nil
         lastClipboardCount = SystemControl.clipboardChangeCount
         let t = DispatchSource.makeTimerSource(queue: queue)
-        var ticks = 0
-        t.schedule(deadline: .now() + 0.1, repeating: 1.0 / 15)
+        var fast = false
+        var lastMove = monotonicMicros(), lastClip = monotonicMicros(), lastStat = monotonicMicros()
+        func setRate(_ f: Bool) {
+            fast = f
+            t.schedule(deadline: .now() + (f ? 1.0 / 15 : 0.5), repeating: f ? 1.0 / 15 : 0.5,
+                       leeway: f ? .milliseconds(5) : .milliseconds(150))
+        }
+        setRate(false)
         t.setEventHandler { [weak self] in
             guard let self, let s = self.active else { return }
-            ticks += 1
+            let now = monotonicMicros()
             if let (x, y) = self.input.cursorPosition(), abs(x - self.lastCursor.0) + abs(y - self.lastCursor.1) > 0.0005 {
                 self.lastCursor = (x, y)
                 s.send(.cursor(x: x, y: y))
+                lastMove = now
+                if !fast { setRate(true) }
+            } else if fast && now - lastMove > 1_500_000 {
+                setRate(false)
             }
-            if ticks % 15 == 0 { self.checkClipboard(s) }
-            if ticks % 75 == 0 { self.sendStatus(force: false) }
+            if now - lastClip > 1_500_000 { lastClip = now; self.checkClipboard(s) }
+            if now - lastStat > 5_000_000 { lastStat = now; self.sendStatus(force: false) }
         }
         t.resume()
         statusTimer = t
+        // Keep macOS from App-Napping capture/encode while someone is controlling the Mac.
+        if napActivity == nil {
+            napActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                                reason: "PocketMac remote session")
+        }
     }
 
-    private func stopStatusTimer() { statusTimer?.cancel(); statusTimer = nil }
+    private var napActivity: NSObjectProtocol?
+
+    private func stopStatusTimer() {
+        statusTimer?.cancel()
+        statusTimer = nil
+        if let a = napActivity { ProcessInfo.processInfo.endActivity(a); napActivity = nil }
+    }
+
+    /// After sleep/wake, re-open the listening socket if nobody is connected (fresh Bonjour + bind).
+    func systemDidWake() {
+        queue.async {
+            guard self.active == nil else { return }
+            NSLog("PocketMac: woke from sleep — restarting listener")
+            self.startListener()
+        }
+    }
 
     private func checkClipboard(_ s: HostSession) {
         DispatchQueue.main.async {
@@ -318,6 +362,11 @@ final class HostSession {
     private(set) var authenticated = false
     private var stage = 0
     private var paired = false
+    /// Phone said "paused" (app going to background) — a close after this is not a ✕ tap.
+    var pausedByPhone = false
+    /// Disconnected from the Mac's own menu / settings.
+    var closedLocally = false
+    private(set) var closeError: Error?
     var deviceKey: Data { handshake.clientStatic }
     var deviceName: String { handshake.clientName.isEmpty ? "iPhone" : handshake.clientName }
 
@@ -328,7 +377,8 @@ final class HostSession {
 
     func start() {
         channel.onMessage = { [weak self] d in self?.received(d) }
-        channel.onClose = { [weak self] _ in
+        channel.onClose = { [weak self] e in
+            self?.closeError = e
             guard let self else { return }
             self.server.sessionClosed(self)
         }

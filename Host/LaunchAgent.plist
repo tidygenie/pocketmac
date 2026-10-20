@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>com.nareshchoudhary.pocketmac.host</string>
+	<key>BundleProgram</key><string>Contents/MacOS/PocketMacHost</string>
+	<key>AssociatedBundleIdentifiers</key><array><string>com.nareshchoudhary.pocketmac.host</string></array>
+	<key>RunAtLoad</key><true/>
+	<!-- Restart if it crashes; "Quit PocketMac Host" (a normal exit) stays quit. -->
+	<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+	<key>ThrottleInterval</key><integer>10</integer>
+	<key>ProcessType</key><string>Interactive</string>
+	<key>LimitLoadToSessionType</key><string>Aqua</string>
+</dict>
+</plist>

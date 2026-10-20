@@ -14,13 +14,32 @@ enum PocketMacHostMain {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
     private let server = HostServer.shared
     private let config = HostConfig.shared
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // Only one PocketMac Host may own port 47800 (test instances use their own config dir).
+        if ProcessInfo.processInfo.environment["POCKETMAC_CONFIG_DIR"] == nil {
+            let me = ProcessInfo.processInfo.processIdentifier
+            if let other = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+                .first(where: { $0.processIdentifier != me }) {
+                NSLog("PocketMac Host already running (pid \(other.processIdentifier)) — exiting")
+                DistributedNotificationCenter.default().postNotificationName(.init("com.nareshchoudhary.pocketmac.host.show"),
+                                                                             object: nil, deliverImmediately: true)
+                exit(0)
+            }
+            DistributedNotificationCenter.default().addObserver(forName: .init("com.nareshchoudhary.pocketmac.host.show"),
+                                                                object: nil, queue: .main) { [weak self] _ in self?.showSettings() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil,
+                                                          queue: .main) { [weak self] _ in
+            self?.server.systemDidWake()
+            self?.server.streamer.displaysChanged()
+            VirtualDisplayManager.shared.evaluate()
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self
@@ -33,7 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             self?.server.streamer.displaysChanged()
+            PrivacyMode.shared.displaysChanged()
+            VirtualDisplayManager.shared.evaluate()
         }
+        PrivacyMode.shared.recoverOnLaunch()
         VirtualDisplayManager.shared.startMonitoring()
 
         // Re-apply lid mode preference after a reboot (pmset setting persists, but keep them in sync).
@@ -125,12 +147,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = "PocketMac Host"
             w.isReleasedWhenClosed = false
+            w.delegate = self
             w.contentViewController = NSHostingController(rootView: SettingsView(confirmLid: { [weak self] in self?.confirmLidMode() ?? false }))
             w.center()
             settingsWindow = w
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Closing the window frees it completely, so its refresh timer stops (zero idle cost).
+    func windowWillClose(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === settingsWindow else { return }
+        settingsWindow?.contentViewController = nil
+        settingsWindow = nil
+    }
+
+    /// Opening the app again from Finder/Spotlight shows the settings.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        showSettings()
+        return false
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
@@ -142,7 +178,7 @@ struct SettingsView: View {
     @ObservedObject private var config = HostConfig.shared
     @ObservedObject private var m: SettingsModel
     let confirmLid: () -> Bool
-    private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 3, tolerance: 1, on: .main, in: .common).autoconnect()
 
     init(confirmLid: @escaping () -> Bool) {
         self.confirmLid = confirmLid
@@ -236,6 +272,19 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section {
+                Toggle("Turn the Mac's screen dark while my iPhone is connected", isOn: Binding(
+                    get: { config.darkScreenWhileConnected }, set: { config.darkScreenWhileConnected = $0 }))
+                Toggle("Lock the Mac when my iPhone disconnects", isOn: Binding(
+                    get: { config.lockOnDisconnect }, set: { config.lockOnDisconnect = $0 }))
+                Stepper("If the connection drops, wait \(config.lockGraceSeconds) s before locking", value: Binding(
+                    get: { config.lockGraceSeconds }, set: { config.lockGraceSeconds = $0 }), in: 10...300, step: 10)
+                Stepper("Brightness afterwards: \(config.restoreBrightnessSteps) of 16", value: Binding(
+                    get: { config.restoreBrightnessSteps }, set: { config.restoreBrightnessSteps = $0 }), in: 2...16)
+            } header: { Text("While your iPhone is connected") } footer: {
+                Text("The desktop keeps running for the iPhone while the Mac's own screen is black, so nobody nearby sees it and the backlight doesn't use power. Tapping ✕ on the iPhone locks the Mac at once; a network drop or switching apps on the iPhone waits the time above so a quick reconnect doesn't lock you out. Disconnecting from this Mac's menu never locks.")
+            }
+
             Section("Lid closed") {
                 Toggle("Keep running with lid closed", isOn: Binding(get: { m.lidOn }, set: { on in
                     if on && !confirmLid() { return }
@@ -263,7 +312,7 @@ struct SettingsView: View {
             }
 
             Section("General") {
-                Toggle("Start PocketMac Host at login", isOn: Binding(get: { m.loginItem }, set: {
+                Toggle("Start at login, and restart automatically if it ever stops", isOn: Binding(get: { m.loginItem }, set: {
                     LoginItem.set($0); m.loginItem = LoginItem.isEnabled
                 }))
             }
@@ -323,13 +372,23 @@ final class SettingsModel: ObservableObject {
     @Published var loginItem = LoginItem.isEnabled
 }
 
+/// "Start at login" = a launchd agent that also restarts the app if it ever crashes
+/// (falls back to a plain login item if macOS refuses the agent).
 enum LoginItem {
-    static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    static let agent = SMAppService.agent(plistName: "com.nareshchoudhary.pocketmac.host.plist")
+    static var isEnabled: Bool { agent.status == .enabled || SMAppService.mainApp.status == .enabled }
     static func set(_ on: Bool) {
-        do {
-            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-        } catch {
-            NSLog("PocketMac: login item change failed: \(error)")
+        if on {
+            do {
+                try agent.register()
+                try? SMAppService.mainApp.unregister()
+            } catch {
+                NSLog("PocketMac: launch agent refused (\(error)), using a login item instead")
+                try? SMAppService.mainApp.register()
+            }
+        } else {
+            try? agent.unregister()
+            try? SMAppService.mainApp.unregister()
         }
     }
 }

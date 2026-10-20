@@ -14,6 +14,22 @@ t() { echo "== $1"; shift; check "$@"; }
 t "first login pairs this phone, HEVC stream decodes" build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/A.key" --seconds 5 --png "$T/hevc.png"
 t "H.264 stream decodes" build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/A.key" --seconds 4 --codec h264 --png "$T/h264.png"
 t "sharp quality, 60 fps" build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/A.key" --seconds 4 --quality 2 --fps 60
+# Privacy while remote (host runs in dry-run: actions are only logged; grace shortened to 4 s)
+L="$T/host.log"
+n() { grep -c "$1" "$L"; }
+q() { build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/A.key" --seconds 1 "$@" > /dev/null 2>&1; }
+dark0=$(n "Mac screen dark"); lock0=$(n "locking Mac"); q; sleep 1
+t "connect darkens the Mac screen" [ "$(n "Mac screen dark")" -gt "$dark0" ]
+t "tapping ✕ on the phone locks the Mac right away" [ "$(n "locking Mac")" -gt "$lock0" ]
+lock1=$(n "locking Mac"); drop1=$(n "connection dropped"); q --pause-before-close; sleep 0.5
+t "phone app going to background is treated as a drop (grace period)" [ "$(n "connection dropped")" -gt "$drop1" ]
+t "…and does not lock immediately" [ "$(n "locking Mac")" -eq "$lock1" ]
+# drop → reconnect within the grace → drop again: the first pending lock must be cancelled
+lockA=$(n "locking Mac"); q --pause-before-close; q --pause-before-close; sleep 2.6
+t "reconnecting within the grace period cancels the pending lock" [ "$(n "locking Mac")" -eq "$lockA" ]
+sleep 3.5
+t "no reconnect → Mac locks after the grace period" [ "$(n "locking Mac")" -gt "$lockA" ]
+t "brightness restored after every lock" [ "$(n "brightness restored")" -ge "$(n "locking Mac")" ]
 t "paired phone + wrong password is refused" build/pmtest --id "$ID" --password nope "${P[@]}" --identity "$T/A.key" --expect-fail badCredentials
 t "a second phone is refused once one is paired (even with right password)" build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/B.key" --expect-fail notAuthorized
 t "fake Mac (ID doesn't match key) is detected" build/pmtest --id "1N81-1EPB-JZXA" --password testpass123 "${P[@]}" --identity "$T/A.key" --expect-fail protocolError

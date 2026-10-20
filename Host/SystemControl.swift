@@ -26,14 +26,15 @@ enum SystemControl {
         return p
     }
 
-    static func lidClosed() -> Bool {
+    /// Reads a power-management flag straight from the registry (no process launch).
+    private static func rootDomainFlag(_ key: String) -> Bool? {
         let svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
-        guard svc != 0 else { return false }
+        guard svc != 0 else { return nil }
         defer { IOObjectRelease(svc) }
-        let v = IORegistryEntryCreateCFProperty(svc, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?
-            .takeRetainedValue()
-        return (v as? Bool) ?? false
+        return IORegistryEntryCreateCFProperty(svc, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool
     }
+
+    static func lidClosed() -> Bool { rootDomainFlag("AppleClamshellState") ?? false }
 
     // MARK: Lid-closed mode (pmset disablesleep)
 
@@ -42,6 +43,9 @@ enum SystemControl {
 
     /// True when macOS is told not to sleep at all (so closing the lid keeps it running).
     static func sleepDisabled() -> Bool {
+        // "SleepDisabled" sits in the registry (only present / Yes while `pmset disablesleep 1`).
+        if let v = rootDomainFlag("SleepDisabled") { return v }
+        if rootDomainFlag("AppleClamshellState") != nil { return false }
         guard let out = run("/usr/bin/pmset", ["-g"]) else { return false }
         for line in out.split(separator: "\n") where line.contains("SleepDisabled") {
             return line.split(whereSeparator: { $0 == " " || $0 == "\t" }).last == "1"
@@ -194,7 +198,8 @@ enum SystemControl {
     }
 
     /// Hardware media keys (volume / play) via NX system-defined events.
-    private static func mediaKey(_ key: Int32) {
+    /// Also used for the brightness keys by PrivacyMode.
+    static func mediaKey(_ key: Int32) {
         for down in [true, false] {
             let flags = NSEvent.ModifierFlags(rawValue: down ? 0xA00 : 0xB00)
             let data1 = Int((key << 16) | ((down ? 0xA : 0xB) << 8))
@@ -235,9 +240,18 @@ final class VirtualDisplayManager {
     var displayID: CGDirectDisplayID? { display?.displayID }
 
     /// Starts watching the lid (cheap IORegistry read every 2 s).
+    /// Reacts when the lid closes/opens (the built-in display goes away/comes back) instead of
+    /// polling; a slow, coalescable safety check covers anything the callback misses.
     func startMonitoring() {
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.evaluate() }
+        CGDisplayRegisterReconfigurationCallback({ _, flags, _ in
+            guard !flags.contains(.beginConfigurationFlag) else { return }
+            DispatchQueue.main.async { VirtualDisplayManager.shared.evaluate() }
+        }, nil)
+        let t = Timer(timeInterval: 30, repeats: true) { [weak self] _ in self?.evaluate() }
+        t.tolerance = 15
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
         evaluate()
     }
 
