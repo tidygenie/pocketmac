@@ -109,12 +109,7 @@ final class HostServer {
             connectedDevice = nil
             connectedAddress = nil
             DispatchQueue.main.async { SystemControl.holdAwake(false) }
-            // ✕ on the phone = clean close with no pause first. A pause (app sent to the
-            // background) or a network error counts as a drop and gets a grace period.
-            let reason: PrivacyMode.EndReason = s.closedLocally ? .local
-                : (s.closeError == nil && !s.pausedByPhone) ? .userDisconnected : .dropped
-            PrivacyMode.shared.sessionEnded(reason)
-            NSLog("PocketMac: session ended (\(reason))")
+            NSLog("PocketMac: session ended")
             notifyUI()
         }
     }
@@ -122,11 +117,11 @@ final class HostServer {
     /// Kick a revoked device off immediately.
     func disconnect(devicePublicKey: Data) {
         queue.async {
-            if let a = self.active, a.deviceKey == devicePublicKey { a.closedLocally = true; a.close() }
+            if self.active?.deviceKey == devicePublicKey { self.active?.close() }
         }
     }
 
-    func disconnectAll() { queue.async { self.active?.closedLocally = true; self.active?.close() } }
+    func disconnectAll() { queue.async { self.active?.close() } }
 
     // MARK: Handshake policy (called on queue)
 
@@ -171,7 +166,6 @@ final class HostServer {
         connectedDevice = s.deviceName
         connectedAddress = s.channel.framed.remoteDescription
         DispatchQueue.main.async { SystemControl.holdAwake(true) }
-        PrivacyMode.shared.sessionStarted()
         NSLog("PocketMac: \(s.deviceName) connected from \(connectedAddress ?? "?")")
         startStatusTimer()
         notifyUI()
@@ -193,9 +187,7 @@ final class HostServer {
             sendStatus(force: true)
         case .frameAck(let id): streamer.ack(id)
         case .requestKeyframe: streamer.requestKeyframe()
-        case .setPaused(let p):
-            s.pausedByPhone = p
-            streamer.setPaused(p)
+        case .setPaused(let p): streamer.setPaused(p)
         case let .mouseMove(x, y): input.move(x: x, y: y)
         case let .mouseButton(b, down, x, y, clicks, flags):
             input.button(b, down: down, x: x, y: y, clicks: clicks, flags: flags)
@@ -326,11 +318,6 @@ final class HostSession {
     private(set) var authenticated = false
     private var stage = 0
     private var paired = false
-    /// Phone said "paused" (app going to background) — a close after this is not a ✕ tap.
-    var pausedByPhone = false
-    /// Disconnected from the Mac's own menu / settings.
-    var closedLocally = false
-    private(set) var closeError: Error?
     var deviceKey: Data { handshake.clientStatic }
     var deviceName: String { handshake.clientName.isEmpty ? "iPhone" : handshake.clientName }
 
@@ -341,8 +328,7 @@ final class HostSession {
 
     func start() {
         channel.onMessage = { [weak self] d in self?.received(d) }
-        channel.onClose = { [weak self] e in
-            self?.closeError = e
+        channel.onClose = { [weak self] _ in
             guard let self else { return }
             self.server.sessionClosed(self)
         }

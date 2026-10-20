@@ -194,8 +194,7 @@ enum SystemControl {
     }
 
     /// Hardware media keys (volume / play) via NX system-defined events.
-    /// Also used for the brightness keys by PrivacyMode.
-    static func mediaKey(_ key: Int32) {
+    private static func mediaKey(_ key: Int32) {
         for down in [true, false] {
             let flags = NSEvent.ModifierFlags(rawValue: down ? 0xA00 : 0xB00)
             let data1 = Int((key << 16) | ((down ? 0xA : 0xB) << 8))

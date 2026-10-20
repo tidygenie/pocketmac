@@ -29,6 +29,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var captureGeneration = 0
     private var testPattern: TestPatternSource?
+    private var warnedNoPermission = false
     private(set) var displayID: CGDirectDisplayID = CGMainDisplayID()
 
     private var encoder: VideoEncoder?
@@ -167,6 +168,19 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
             tp.start()
             return
         }
+        // Without permission, asking ScreenCaptureKit makes macOS show its "record this
+        // screen" pop-up every time. Check silently first and wait for permission instead.
+        guard CGPreflightScreenCaptureAccess() else {
+            if !warnedNoPermission {
+                warnedNoPermission = true
+                sink?(.notice("Screen Recording is off for PocketMac Host. On the Mac: System Settings → Privacy & Security → Screen Recording → turn PocketMac Host on, then reopen it."))
+            }
+            queue.asyncAfter(deadline: .now() + 3) {
+                if gen == self.captureGeneration, self.running { self.startCapture() }
+            }
+            return
+        }
+        warnedNoPermission = false
         Task {
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -201,10 +215,7 @@ final class ScreenStreamer: NSObject, SCStreamOutput, SCStreamDelegate {
                 NSLog("PocketMac: capture failed: \(error)")
                 self.queue.async {
                     guard gen == self.captureGeneration, self.running else { return }
-                    if !CGPreflightScreenCaptureAccess() {
-                        self.sink?(.notice("Screen Recording permission is off for PocketMac Host on the Mac."))
-                    }
-                    self.queue.asyncAfter(deadline: .now() + 2) {
+                    self.queue.asyncAfter(deadline: .now() + 3) {
                         if gen == self.captureGeneration, self.running { self.startCapture() }
                     }
                 }

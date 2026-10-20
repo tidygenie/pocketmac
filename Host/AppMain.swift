@@ -33,9 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             self?.server.streamer.displaysChanged()
-            PrivacyMode.shared.displaysChanged()
         }
-        PrivacyMode.shared.recoverOnLaunch()
         VirtualDisplayManager.shared.startMonitoring()
 
         // Re-apply lid mode preference after a reboot (pmset setting persists, but keep them in sync).
@@ -236,19 +234,6 @@ struct SettingsView: View {
                 }
                 Text("Same Wi-Fi, or iPhone near the Mac with no Wi-Fi: found automatically (Bonjour / peer-to-peer).\nDifferent networks: install Tailscale on both and enter the Tailscale address on the iPhone. Port \(String(PocketMacPort)).")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Turn the Mac's screen dark while my iPhone is connected", isOn: Binding(
-                    get: { config.darkScreenWhileConnected }, set: { config.darkScreenWhileConnected = $0 }))
-                Toggle("Lock the Mac when my iPhone disconnects", isOn: Binding(
-                    get: { config.lockOnDisconnect }, set: { config.lockOnDisconnect = $0 }))
-                Stepper("If the connection drops, wait \(config.lockGraceSeconds) s before locking", value: Binding(
-                    get: { config.lockGraceSeconds }, set: { config.lockGraceSeconds = $0 }), in: 10...300, step: 10)
-                Stepper("Brightness afterwards: \(config.restoreBrightnessSteps) of 16", value: Binding(
-                    get: { config.restoreBrightnessSteps }, set: { config.restoreBrightnessSteps = $0 }), in: 2...16)
-            } header: { Text("While your iPhone is connected") } footer: {
-                Text("The desktop keeps running for the iPhone while the Mac's own screen is black, so nobody nearby sees it and the backlight doesn't use power. Tapping ✕ on the iPhone locks the Mac at once; a network drop or switching apps on the iPhone waits the time above so a quick reconnect doesn't lock you out. Disconnecting from this Mac's menu never locks.")
             }
 
             Section("Lid closed") {
