@@ -116,7 +116,14 @@ core.onState = { state in
         for i in 0..<Int(seconds * 4) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * Double(i)) { core.send(.ping(monotonicMicros())) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { core.close() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            if opts["pause-before-close"] != nil {
+                core.send(.setPaused(true))   // like the iPhone app going to the background
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { core.close() }
+            } else {
+                core.close()
+            }
+        }
     case .closed(let e):
         if let expectFail {
             if let f = e as? HandshakeFailure, "\(f.code)" == expectFail {

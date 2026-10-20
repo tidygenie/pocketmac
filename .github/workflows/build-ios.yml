@@ -6,6 +6,10 @@ name: Build iPhone app (.ipa)
 on:
   push:
     branches: [main]
+    # Only rebuild the iPhone app when its code changes (macOS minutes count 10x on private repos).
+    paths:
+      - "iOS/**"
+      - "Shared/**"
   workflow_dispatch:
 
 jobs:
