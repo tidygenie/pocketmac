@@ -3,3 +3,4 @@ iOS/build/
 iOS/PocketMac.xcodeproj/xcuserdata/
 *.xcuserstate
 .DS_Store
+dist/
