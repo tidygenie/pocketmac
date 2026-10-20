@@ -64,6 +64,23 @@ enum SystemControl {
         return runAsAdmin("/usr/bin/pmset -a disablesleep \(arg)") && sleepDisabled() == on
     }
 
+    /// Without the helper, every lid-mode change asks for the admin password. Offer to install
+    /// it (one password, once); afterwards changes are silent. Main thread only.
+    private static var helperDeclined = false
+
+    static func offerHelperIfNeeded() -> Bool {
+        if helperInstalled { return true }
+        if helperDeclined { return false }
+        let a = NSAlert()
+        a.messageText = "Stop asking for your password?"
+        a.informativeText = "Switching lid-closed mode on or off needs your Mac password every time. Install PocketMac's small helper once (asks for your password one last time), and after that quitting PocketMac and switching lid mode won't ask again.\n\nThe helper allows exactly one thing: `pmset -a disablesleep 0` or `1`. You can remove it in Settings."
+        a.addButton(withTitle: "Install Helper")
+        a.addButton(withTitle: "Not Now")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { helperDeclined = true; return false }
+        return installHelper()
+    }
+
     /// One-time: lets PocketMac toggle *only* `pmset -a disablesleep 0|1` without a password,
     /// so the iPhone can switch lid-closed mode and the battery guard can turn it off.
     static func installHelper() -> Bool {

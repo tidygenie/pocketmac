@@ -135,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let on = !SystemControl.sleepDisabled()
         if on && !confirmLidMode() { return }
         config.lidModeWanted = on
+        _ = SystemControl.offerHelperIfNeeded()
         SystemControl.setLidMode(on, allowPrompt: true)
         VirtualDisplayManager.shared.evaluate()
     }
@@ -186,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// Quit from the menu: lid-closed mode off first (so closing the lid sleeps the Mac again).
     @objc private func quit() {
         if !isTestInstance && SystemControl.sleepDisabled() {
+            _ = SystemControl.offerHelperIfNeeded()
             if !SystemControl.setLidMode(false, allowPrompt: true) {
                 let a = NSAlert()
                 a.messageText = "Lid-closed mode is still on"
@@ -327,6 +329,7 @@ struct SettingsView: View {
                 Toggle("Keep running with lid closed", isOn: Binding(get: { m.lidOn }, set: { on in
                     if on && !confirmLid() { return }
                     config.lidModeWanted = on
+                    _ = SystemControl.offerHelperIfNeeded()
                     SystemControl.setLidMode(on, allowPrompt: true)
                     m.lidOn = SystemControl.sleepDisabled()
                     VirtualDisplayManager.shared.evaluate()
