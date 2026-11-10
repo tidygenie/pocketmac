@@ -1,0 +1,103 @@
+# Builds the Android app in the cloud and uploads PocketMac.apk (signed with the
+# project's own key, so new builds install over old ones). Also runs:
+#  - protocol unit tests against vectors generated from the Mac's Swift code
+#  - on an emulator: real recorded Mac video through the decoder + screenshots
+name: Build Android app (.apk)
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/build-android.yml"
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Protocol tests (must match the Mac byte for byte)
+        run: gradle -p android testDebugUnitTest --stacktrace
+
+      - name: Release signing key
+        env:
+          KS: ${{ secrets.POCKETMAC_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "POCKETMAC_KEYSTORE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No release key secret: the APK is signed with a throwaway debug key"
+          fi
+
+      - name: Build release APK
+        env:
+          POCKETMAC_KEYSTORE_PASSWORD: ${{ secrets.POCKETMAC_KEYSTORE_PASSWORD }}
+        run: |
+          gradle -p android assembleRelease --stacktrace
+          cp android/app/build/outputs/apk/release/app-release.apk PocketMac.apk
+          ls -la PocketMac.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketMac-apk
+          path: PocketMac.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: unit-test-report
+          path: android/app/build/reports/tests/
+
+  device-tests:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Build app and test APKs
+        run: gradle -p android assembleDebug assembleDebugAndroidTest --stacktrace
+
+      - name: Enable KVM (fast emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run on an Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash android/ci/device-tests.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-results
+          path: device-results/

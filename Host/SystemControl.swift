@@ -185,7 +185,7 @@ enum SystemControl {
         case .lidModeOn, .lidModeOff:
             let on = a == .lidModeOn
             guard helperInstalled else {
-                return "To switch lid-closed mode from the iPhone, click “Install helper” once in PocketMac Host on the Mac."
+                return "To switch lid-closed mode from your phone, click “Install helper” once in PocketMac Host on the Mac."
             }
             HostConfig.shared.lidModeWanted = on
             if !setLidMode(on, allowPrompt: false) { return "Couldn't change lid-closed mode." }
@@ -193,7 +193,7 @@ enum SystemControl {
         case .sleepMac:
             if sleepDisabled() {
                 guard helperInstalled, setLidMode(false, allowPrompt: false) else {
-                    return "Lid-closed mode is on; install the helper on the Mac so the iPhone can turn it off."
+                    return "Lid-closed mode is on; install the helper on the Mac so your phone can turn it off."
                 }
                 HostConfig.shared.lidModeWanted = false
             }

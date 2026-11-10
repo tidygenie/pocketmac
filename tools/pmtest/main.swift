@@ -4,6 +4,7 @@
 //   pmtest --id XXXX-XXXX-XXXX --password pw [--host 127.0.0.1] [--port 47800]
 //          [--seconds 6] [--codec hevc|h264] [--quality 0|1|2] [--png out.png]
 //          [--identity file] [--expect-fail badCredentials|notAuthorized|lockedOut|protocolError]
+//          [--dump file]   (saves the video messages, length-prefixed, as a fixture for the Android tests)
 import Foundation
 import Network
 import CryptoKit
@@ -79,6 +80,17 @@ settings.quality = StreamQuality(rawValue: UInt8(opts["quality"] ?? "1") ?? 1) ?
 settings.maxFPS = UInt8(opts["fps"] ?? "30") ?? 30
 
 var decoder: Decoder?
+let dump: FileHandle? = opts["dump"].flatMap { path in
+    FileManager.default.createFile(atPath: path, contents: nil)
+    return FileHandle(forWritingAtPath: path)
+}
+func dumpMessage(_ m: ServerMessage) {
+    guard let dump else { return }
+    let d = m.encode()
+    var len = UInt32(d.count).bigEndian
+    dump.write(Data(bytes: &len, count: 4))
+    dump.write(d)
+}
 var frames = 0, keyframes = 0, bytes = 0, maxFrame = 0, formats = 0
 var connectedAt = Date()
 var firstFrameMs = -1.0
@@ -139,10 +151,12 @@ core.onState = { state in
 core.onMessage = { m in
     switch m {
     case .videoFormat(let f):
+        dumpMessage(m)
         formats += 1
         decoder = Decoder(f)
         print("FORMAT \(f.codec) \(f.width)x\(f.height) parameterSets=\(f.parameterSets.count) decoder=\(decoder != nil)")
     case .videoFrame(let f):
+        dumpMessage(m)
         if frames == 0 { firstFrameMs = Date().timeIntervalSince(connectedAt) * 1000 }
         frames += 1
         bytes += f.data.count

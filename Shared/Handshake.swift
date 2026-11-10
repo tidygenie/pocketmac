@@ -117,7 +117,7 @@ final class ClientHandshake {
     }
 
     private let staticKey: Curve25519.KeyAgreement.PrivateKey
-    private let ephemeral = Curve25519.KeyAgreement.PrivateKey()
+    private let ephemeral: Curve25519.KeyAgreement.PrivateKey
     private let expectedID: String
     private let deviceName: String
     private var helloBytes = Data()
@@ -125,8 +125,11 @@ final class ClientHandshake {
     private var serverEphemeral = Data()
     private var serverStatic = Data()
 
-    init(staticKey: Curve25519.KeyAgreement.PrivateKey, expectedID: String, deviceName: String) {
+    /// `ephemeral` is only passed by the test-vector tool; normally a fresh key per login.
+    init(staticKey: Curve25519.KeyAgreement.PrivateKey, expectedID: String, deviceName: String,
+         ephemeral: Curve25519.KeyAgreement.PrivateKey = .init()) {
         self.staticKey = staticKey
+        self.ephemeral = ephemeral
         self.expectedID = DeviceID.normalize(expectedID)
         self.deviceName = String(deviceName.prefix(Handshake.maxNameLength))
     }
@@ -190,14 +193,17 @@ final class ClientHandshake {
 
 final class ServerHandshake {
     private let staticKey: Curve25519.KeyAgreement.PrivateKey
-    private let ephemeral = Curve25519.KeyAgreement.PrivateKey()
+    private let ephemeral: Curve25519.KeyAgreement.PrivateKey
     private var clientHelloBytes = Data()
     private var serverHelloBytes = Data()
     private(set) var clientEphemeral = Data()
     private(set) var clientStatic = Data()
     private(set) var clientName = ""
 
-    init(staticKey: Curve25519.KeyAgreement.PrivateKey) { self.staticKey = staticKey }
+    init(staticKey: Curve25519.KeyAgreement.PrivateKey, ephemeral: Curve25519.KeyAgreement.PrivateKey = .init()) {
+        self.staticKey = staticKey
+        self.ephemeral = ephemeral
+    }
 
     func parseClientHello(_ msg: Data) throws {
         var r = try Handshake.expect(.clientHello, in: msg)

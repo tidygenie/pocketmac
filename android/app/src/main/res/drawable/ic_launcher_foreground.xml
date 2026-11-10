@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A laptop and a phone, inside the 66dp safe zone of the 108dp adaptive icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- scaled to fit the round mask's safe circle (diameter 66), centred -->
+    <group android:scaleX="0.8" android:scaleY="0.8" android:pivotX="53" android:pivotY="56"
+        android:translateX="1" android:translateY="-2">
+    <!-- laptop screen -->
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M27,38h36a3,3 0,0 1,3 3v24h-42v-24a3,3 0,0 1,3 -3z M28.5,42.5v18h33v-18z" />
+    <!-- laptop base -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M20,66.5h50l-1.6,3.4a2,2 0,0 1,-1.8 1.1h-43.2a2,2 0,0 1,-1.8 -1.1z" />
+    <!-- phone -->
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M75.5,44h7a3.5,3.5 0,0 1,3.5 3.5v23a3.5,3.5 0,0 1,-3.5 3.5h-7a3.5,3.5 0,0 1,-3.5 -3.5v-23a3.5,3.5 0,0 1,3.5 -3.5z M74.5,48.5v19.5h9v-19.5z" />
+    </group>
+</vector>

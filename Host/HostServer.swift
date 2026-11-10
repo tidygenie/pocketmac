@@ -372,7 +372,7 @@ final class HostSession {
     var closedLocally = false
     private(set) var closeError: Error?
     var deviceKey: Data { handshake.clientStatic }
-    var deviceName: String { handshake.clientName.isEmpty ? "iPhone" : handshake.clientName }
+    var deviceName: String { handshake.clientName.isEmpty ? "Phone" : handshake.clientName }
 
     init(connection: NWConnection, server: HostServer) {
         self.server = server

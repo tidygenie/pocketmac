@@ -95,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             menu.addItem(withTitle: "Connected: \(dev)", action: nil, keyEquivalent: "")
             if let a = server.connectedAddress { menu.addItem(withTitle: "   from \(a)", action: nil, keyEquivalent: "") }
         } else {
-            menu.addItem(withTitle: config.hasPassword ? "Ready — waiting for iPhone" : "Set a password first", action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: config.hasPassword ? "Ready — waiting for your phone" : "Set a password first", action: nil, keyEquivalent: "")
         }
         let idItem = NSMenuItem(title: "ID: \(DeviceID.pretty(config.deviceID))  (click to copy)", action: #selector(copyID), keyEquivalent: "")
         idItem.target = self
@@ -103,16 +103,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(.separator())
 
         if config.isPairingOpen {
-            let until = config.pairingDeadline.map { "until " + DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .short) } ?? "(no iPhone paired yet)"
+            let until = config.pairingDeadline.map { "until " + DateFormatter.localizedString(from: $0, dateStyle: .none, timeStyle: .short) } ?? "(no phone paired yet)"
             menu.addItem(withTitle: "Pairing open \(until)", action: nil, keyEquivalent: "")
         } else {
-            add(menu, "Pair new iPhone (5 min)", #selector(openPairing))
+            add(menu, "Pair new phone (5 min)", #selector(openPairing))
         }
         let lid = NSMenuItem(title: "Keep running with lid closed (until Quit)", action: #selector(toggleLid), keyEquivalent: "")
         lid.target = self
         lid.state = SystemControl.sleepDisabled() ? .on : .off
         menu.addItem(lid)
-        if server.connectedDevice != nil { add(menu, "Disconnect iPhone", #selector(disconnect)) }
+        if server.connectedDevice != nil { add(menu, "Disconnect phone", #selector(disconnect)) }
         menu.addItem(.separator())
         add(menu, "Settings…", #selector(showSettings), key: ",")
         add(menu, "Quit PocketMac Host", #selector(quit), key: "q")
@@ -241,7 +241,7 @@ struct SettingsView: View {
                             NSPasteboard.general.setString(DeviceID.pretty(config.deviceID), forType: .string)
                         }
                     }
-                    Text("On the iPhone, enter this ID and your password. The ID is a fingerprint of this Mac's encryption key, so nobody can pretend to be this Mac.")
+                    Text("On your iPhone or Android phone, enter this ID and your password. The ID is a fingerprint of this Mac's encryption key, so nobody can pretend to be this Mac.")
                         .font(.caption).foregroundStyle(.secondary)
                     Text(statusLine).font(.callout).padding(.top, 2)
                 }
@@ -256,13 +256,13 @@ struct SettingsView: View {
                     Text(m.pwMessage).font(.caption).foregroundStyle(m.pwMessage.hasPrefix("✓") ? .green : .red)
                 }
                 Text(config.hasPassword ? "Password is set. Only a PBKDF2 key is stored, never the password itself."
-                     : "No password yet — the iPhone can't connect until you set one.")
+                     : "No password yet — your phone can't connect until you set one.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Paired iPhone") {
+            Section("Paired phones") {
                 if config.devices.isEmpty {
-                    Text("None yet. The first iPhone that logs in with the right password gets paired; after that, all other devices are refused.")
+                    Text("None yet. The first phone that logs in with the right password gets paired; after that, other devices are refused unless you click “Pair new phone”.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(config.devices) { d in
@@ -281,18 +281,18 @@ struct SettingsView: View {
                 HStack {
                     if config.isPairingOpen {
                         Text(config.pairingDeadline.map { "Pairing open until \($0.formatted(date: .omitted, time: .shortened))" }
-                             ?? "Pairing open (no iPhone paired yet)")
+                             ?? "Pairing open (no phone paired yet)")
                             .foregroundStyle(.orange)
                         if config.pairingDeadline != nil { Button("Close") { config.closePairing() } }
                     } else {
-                        Button("Pair new iPhone (opens for 5 min)") { config.openPairing() }
+                        Button("Pair another phone (opens for 5 min)") { config.openPairing() }
                     }
                 }
             }
 
             Section("Permissions") {
                 permissionRow("Screen Recording", ok: CGPreflightScreenCaptureAccess(),
-                              help: "So the iPhone can see the screen.") {
+                              help: "So your phone can see the screen.") {
                     if !CGRequestScreenCaptureAccess() { openPrivacy("Privacy_ScreenCapture") }
                 }
                 permissionRow("Accessibility", ok: InputInjector.hasPermission,
@@ -302,28 +302,28 @@ struct SettingsView: View {
                 }
             }
 
-            Section("How the iPhone finds this Mac") {
+            Section("How your phone finds this Mac") {
                 ForEach(NetInfo.addresses(), id: \.address) { a in
                     HStack {
                         Text(a.kind).frame(width: 110, alignment: .leading).foregroundStyle(.secondary)
                         Text(a.address).font(.system(.body, design: .monospaced)).textSelection(.enabled)
                     }
                 }
-                Text("Same Wi-Fi, or iPhone near the Mac with no Wi-Fi: found automatically (Bonjour / peer-to-peer).\nDifferent networks: install Tailscale on both and enter the Tailscale address on the iPhone. Port \(String(PocketMacPort)).")
+                Text("Same Wi-Fi: found automatically (an iPhone also works near the Mac with no Wi-Fi).\nDifferent networks: install Tailscale on both and enter the Tailscale address on the phone. Port \(String(PocketMacPort)).")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
-                Toggle("Turn the Mac's screen dark while my iPhone is connected", isOn: Binding(
+                Toggle("Turn the Mac's screen dark while my phone is connected", isOn: Binding(
                     get: { config.darkScreenWhileConnected }, set: { config.darkScreenWhileConnected = $0 }))
-                Toggle("Lock the Mac when my iPhone disconnects", isOn: Binding(
+                Toggle("Lock the Mac when my phone disconnects", isOn: Binding(
                     get: { config.lockOnDisconnect }, set: { config.lockOnDisconnect = $0 }))
                 Stepper("If the connection drops, wait \(config.lockGraceSeconds) s before locking", value: Binding(
                     get: { config.lockGraceSeconds }, set: { config.lockGraceSeconds = $0 }), in: 10...300, step: 10)
                 Stepper("Brightness afterwards: \(config.restoreBrightnessSteps) of 16", value: Binding(
                     get: { config.restoreBrightnessSteps }, set: { config.restoreBrightnessSteps = $0 }), in: 2...16)
-            } header: { Text("While your iPhone is connected") } footer: {
-                Text("The desktop keeps running for the iPhone while the Mac's own screen is black, so nobody nearby sees it and the backlight doesn't use power. Tapping ✕ on the iPhone locks the Mac at once; a network drop or switching apps on the iPhone waits the time above so a quick reconnect doesn't lock you out. Disconnecting from this Mac's menu never locks.")
+            } header: { Text("While your phone is connected") } footer: {
+                Text("The desktop keeps running for the phone while the Mac's own screen is black, so nobody nearby sees it and the backlight doesn't use power. Tapping ✕ on the phone locks the Mac at once; a network drop or switching apps on the phone waits the time above so a quick reconnect doesn't lock you out. Disconnecting from this Mac's menu never locks.")
             }
 
             Section("Lid closed") {
@@ -335,7 +335,7 @@ struct SettingsView: View {
                     m.lidOn = SystemControl.sleepDisabled()
                     VirtualDisplayManager.shared.evaluate()
                 }))
-                Text("Stays on only while PocketMac Host is running: quitting it turns this off so closing the lid sleeps the Mac again, and it comes back on next launch. Uses `pmset disablesleep` (asks for your Mac password unless the helper below is installed). When the lid is closed PocketMac adds a virtual screen shaped for your iPhone, so you still see and control a full desktop.")
+                Text("Stays on only while PocketMac Host is running: quitting it turns this off so closing the lid sleeps the Mac again, and it comes back on next launch. Uses `pmset disablesleep` (asks for your Mac password unless the helper below is installed). When the lid is closed PocketMac adds a virtual screen shaped for your phone, so you still see and control a full desktop.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     if m.helper {
@@ -347,7 +347,7 @@ struct SettingsView: View {
                         Spacer()
                     }
                 }
-                Text("Optional. Lets PocketMac run only `pmset -a disablesleep 0/1` without a password, so you can switch lid mode from the iPhone and the battery guard can turn it off.")
+                Text("Optional. Lets PocketMac run only `pmset -a disablesleep 0/1` without a password, so you can switch lid mode from the phone and the battery guard can turn it off.")
                     .font(.caption).foregroundStyle(.secondary)
                 Stepper("Battery guard: turn off at \(config.batteryGuardPercent)%", value: Binding(
                     get: { config.batteryGuardPercent }, set: { config.batteryGuardPercent = $0 }), in: 5...50, step: 5)
