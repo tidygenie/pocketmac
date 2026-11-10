@@ -8,7 +8,9 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
 import android.util.Log
-import androidx.test.core.app.ActivityScenario
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.nareshchoudhary.pocketmac.data.SavedMac
@@ -19,6 +21,7 @@ import com.nareshchoudhary.pocketmac.video.VideoDecoder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -93,61 +96,62 @@ class DecoderTest {
     @Test fun h264StreamFromMacDecodes() = decode("stream-h264.bin")
 }
 
-/** Screenshots of every screen (uploaded by CI) so the layout can be checked without a phone. */
+/** Every screen, checked by its content (Compose's test tools) and saved as a screenshot for CI. */
 @RunWith(AndroidJUnit4::class)
 class ScreenshotTest {
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val inst = InstrumentationRegistry.getInstrumentation()
     private val app get() = (inst.targetContext.applicationContext as PocketMacApplication).state
 
-    /** Waits until [expect] is on screen (read from the UI itself, not pixels), then saves a screenshot. */
+    private fun onScreen(text: String): Boolean =
+        compose.onAllNodesWithText(text, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() ||
+            compose.onAllNodesWithContentDescription(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    /** Waits until [expect] is on screen, then saves a screenshot. */
     private fun shot(name: String, expect: String) {
-        val deadline = SystemClock.uptimeMillis() + 40_000
-        var found = false
-        while (!found && SystemClock.uptimeMillis() < deadline) {
-            found = runCatching { inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(expect)?.isNotEmpty() == true }
-                .getOrDefault(false)
-            if (!found) SystemClock.sleep(500)
-        }
-        Log.i("PocketMacTest", "screen $name: '$expect' ${if (found) "shown" else "NOT shown"}")
+        compose.waitUntil(60_000) { onScreen(expect) }
+        Log.i("PocketMacTest", "screen $name: '$expect' shown")
         SystemClock.sleep(3000)   // CI emulators draw in software (seconds per frame)
         inst.uiAutomation.takeScreenshot()?.let { bmp ->
             val dir = File(inst.targetContext.filesDir, "screens").apply { mkdirs() }
             File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        assertTrue("$name: '$expect' never appeared", found)
     }
+
+    private fun orientation(o: Int) = compose.runOnUiThread { compose.activity.requestedOrientation = o }
 
     @Test fun everyScreen() {
         val mac = SavedMac("K7QM4XPA9TZC", "Naresh's MacBook Air", "naresh-macbook-air",
             lastConnected = System.currentTimeMillis() - 3_600_000)
-        inst.runOnMainSync { app.store.upsert(mac) }
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            shot("1-home", "My Macs")
-            inst.runOnMainSync { app.addForm = AddMacForm() }
-            shot("2-add-mac", "Mac ID")
-            inst.runOnMainSync { app.addForm = null; app.showSettings = true }
-            shot("3-settings", "Trackpad speed")
-            inst.runOnMainSync { app.showSettings = false }
+        compose.runOnUiThread { app.store.upsert(mac) }
+        shot("1-home", "My Macs")
+        compose.runOnUiThread { app.addForm = AddMacForm() }
+        shot("2-add-mac", "Mac ID")
+        compose.runOnUiThread { app.addForm = null; app.showSettings = true }
+        shot("3-settings", "Trackpad speed")
+        compose.runOnUiThread { app.showSettings = false }
+        shot("1b-home-again", "My Macs")
 
-            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
-            SystemClock.sleep(1500)
-            val stream = recordedStream("stream-hevc.bin")
-            inst.runOnMainSync { app.startDemo(mac, stream) }
-            shot("4-remote", "Disconnect")
-            val fps = app.session?.fps ?: 0
-            Log.i("PocketMacTest", "remote screen fps=$fps")
+        orientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+        SystemClock.sleep(1500)
+        val stream = recordedStream("stream-hevc.bin")
+        compose.runOnUiThread { app.startDemo(mac, stream) }
+        shot("4-remote", "Disconnect")
+        SystemClock.sleep(2000)
+        val fps = app.session?.fps ?: 0
+        Log.i("PocketMacTest", "remote screen fps=$fps")
 
-            inst.runOnMainSync { app.session?.view?.setKeyboard(true) }
-            shot("5-keyboard", "esc")
-            inst.runOnMainSync { app.session?.view?.setKeyboard(false); app.session?.toolbarOpen = false }
-            shot("6-toolbar-hidden", "Show toolbar")
+        compose.runOnUiThread { app.session?.view?.setKeyboard(true) }
+        shot("5-keyboard", "esc")
+        compose.runOnUiThread { app.session?.view?.setKeyboard(false); app.session?.toolbarOpen = false }
+        shot("6-toolbar-hidden", "Show toolbar")
 
-            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
-            inst.runOnMainSync { app.session?.toolbarOpen = true }
-            SystemClock.sleep(1500)
-            shot("7-remote-portrait", "Disconnect")
-            inst.runOnMainSync { app.closeSession() }
-            assertTrue("video plays on the remote screen (fps=$fps)", fps > 0)
-        }
+        orientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+        compose.runOnUiThread { app.session?.toolbarOpen = true }
+        SystemClock.sleep(1500)
+        shot("7-remote-portrait", "Disconnect")
+        compose.runOnUiThread { app.closeSession() }
+        shot("8-home-after-disconnect", "My Macs")
+        assertTrue("video plays on the remote screen (fps=$fps)", fps > 0)
     }
 }
