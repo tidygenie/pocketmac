@@ -100,8 +100,10 @@ class ScreenshotTest {
     private val app get() = (inst.targetContext.applicationContext as PocketMacApplication).state
 
     private fun shot(name: String) {
-        SystemClock.sleep(2000)   // CI emulators render slowly
+        // CI emulators draw in software (seconds per frame): wait until the screen has settled.
+        SystemClock.sleep(1000)
         inst.waitForIdleSync()
+        runCatching { inst.uiAutomation.waitForIdle(2000, 20_000) }
         val bmp = inst.uiAutomation.takeScreenshot() ?: return
         val dir = File(inst.targetContext.filesDir, "screens").apply { mkdirs() }
         File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
