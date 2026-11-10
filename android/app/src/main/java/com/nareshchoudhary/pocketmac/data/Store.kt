@@ -89,6 +89,9 @@ class AppStore(private val context: Context) {
             ?: X25519.generatePrivateKey().also { prefs.edit().putString("identity", Vault.seal(it)).apply() }
     }
 
+    /** Short fingerprint of this phone's public key, shown in Settings. */
+    val identityFingerprint: String by lazy { DeviceID.pretty(DeviceID.from(X25519.publicKey(identity))).take(9) + "…" }
+
     val deviceName: String by lazy {
         val custom = runCatching { Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME) }.getOrNull()
         custom?.takeIf { it.isNotBlank() } ?: run {

@@ -12,7 +12,9 @@ import com.nareshchoudhary.pocketmac.data.AppStore
 import com.nareshchoudhary.pocketmac.data.SavedMac
 import com.nareshchoudhary.pocketmac.net.Discovery
 import com.nareshchoudhary.pocketmac.proto.DeviceID
+import com.nareshchoudhary.pocketmac.proto.NetThreads
 import com.nareshchoudhary.pocketmac.proto.POCKETMAC_PORT
+import com.nareshchoudhary.pocketmac.video.Codecs
 
 class PocketMacApplication : Application() {
     lateinit var state: AppState
@@ -35,6 +37,14 @@ class AppState(val context: Application) {
     var showSettings by mutableStateOf(false)
     /** Android 17+: the user hasn't allowed local network access yet (needed to find the Mac on Wi-Fi). */
     var localNetworkDenied by mutableStateOf(false)
+
+    init {
+        // Slow one-time work off the main thread, so the first connect and Settings open instantly.
+        NetThreads.io.execute {
+            Codecs.hasHardwareHevc
+            store.identityFingerprint
+        }
+    }
 
     /** Set by the activity: shows the fingerprint / screen-lock prompt and reports success. */
     var unlocker: ((title: String, subtitle: String, done: (Boolean) -> Unit) -> Unit)? = null

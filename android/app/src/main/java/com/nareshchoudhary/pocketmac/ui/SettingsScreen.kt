@@ -42,9 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.nareshchoudhary.pocketmac.AppState
 import com.nareshchoudhary.pocketmac.BuildConfig
 import com.nareshchoudhary.pocketmac.data.InputMode
-import com.nareshchoudhary.pocketmac.proto.DeviceID
 import com.nareshchoudhary.pocketmac.proto.StreamQuality
-import com.nareshchoudhary.pocketmac.proto.X25519
 import com.nareshchoudhary.pocketmac.video.Codecs
 
 @Composable
@@ -110,10 +108,9 @@ fun SettingsScreen(app: AppState) {
             Section("Security") {
                 SwitchRow("Fingerprint or screen lock to connect", "Before a saved login is used (Android 11 and later)",
                     s.unlockToConnect) { v -> store.update { it.copy(unlockToConnect = v) } }
-                val key = DeviceID.pretty(DeviceID.from(X25519.publicKey(store.identity))).take(9) + "…"
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Text("This phone's key", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                    Text(key, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(store.identityFingerprint, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Hint(
                     "Every session is end-to-end encrypted (X25519 + AES-256-GCM) directly between this phone and your Mac, with no server " +

@@ -100,7 +100,7 @@ class ScreenshotTest {
     private val app get() = (inst.targetContext.applicationContext as PocketMacApplication).state
 
     private fun shot(name: String) {
-        SystemClock.sleep(900)
+        SystemClock.sleep(2000)   // CI emulators render slowly
         inst.waitForIdleSync()
         val bmp = inst.uiAutomation.takeScreenshot() ?: return
         val dir = File(inst.targetContext.filesDir, "screens").apply { mkdirs() }
@@ -129,7 +129,7 @@ class ScreenshotTest {
             Log.i("PocketMacTest", "remote screen fps=$fps")
 
             inst.runOnMainSync { app.session?.view?.setKeyboard(true) }
-            SystemClock.sleep(1500)
+            SystemClock.sleep(5000)   // the emulator's keyboard takes a few seconds to appear the first time
             shot("5-keyboard")
             inst.runOnMainSync { app.session?.view?.setKeyboard(false); app.session?.toolbarOpen = false }
             shot("6-toolbar-hidden")
