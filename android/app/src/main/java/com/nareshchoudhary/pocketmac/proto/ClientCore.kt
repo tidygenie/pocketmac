@@ -134,7 +134,7 @@ class ConnectionRacer(timeoutMs: Long, private val completion: (Socket?, Throwab
     private fun checkExhausted() {
         val err = synchronized(lock) {
             if (done || pending > 0 || expectingMore) return
-            lastError ?: WireException("No route to the Mac.")
+            lastError ?: WireException("Couldn't find the Mac on this Wi-Fi. Check that PocketMac Host is running, or add the Mac's Tailscale address to connect from another network.")
         }
         fail(err)
     }

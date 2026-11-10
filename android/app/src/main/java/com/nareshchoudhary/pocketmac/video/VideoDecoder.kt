@@ -36,7 +36,7 @@ object Codecs {
     val hasHardwareHevc: Boolean by lazy { decoders(VideoCodec.HEVC.mime).any(::isHardware) }
 
     fun supports(codec: VideoCodec, width: Int, height: Int): Boolean = decoders(codec.mime).any { info ->
-        runCatching { info.getCapabilitiesForType(codec.mime).videoCapabilities.isSizeSupported(width, height) }.getOrDefault(false)
+        runCatching { info.getCapabilitiesForType(codec.mime).videoCapabilities?.isSizeSupported(width, height) == true }.getOrDefault(false)
     }
 }
 
@@ -219,7 +219,7 @@ class VideoDecoder(private val pool: ByteArrayPool, private val listener: Listen
         }
         mf.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(minInputSize, f.width * f.height / 2, 1 shl 20))
         val info = Codecs.decoders(mime).firstOrNull { info ->
-            runCatching { info.getCapabilitiesForType(mime).videoCapabilities.isSizeSupported(f.width, f.height) }.getOrDefault(false)
+            runCatching { info.getCapabilitiesForType(mime).videoCapabilities?.isSizeSupported(f.width, f.height) == true }.getOrDefault(false)
         }
         val c = if (info != null) MediaCodec.createByCodecName(info.name) else MediaCodec.createDecoderByType(mime)
         try {

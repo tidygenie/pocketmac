@@ -86,12 +86,15 @@ class GestureEngine(private val density: Float, private val delegate: GestureDel
     private fun dp(px: Float) = px / density
 
     fun onTouchEvent(e: MotionEvent) {
+        val now = e.eventTime / 1000.0
+        // A new first finger while we still think fingers are down (a lost "up"): finish the old gesture first,
+        // so a held mouse button is always released.
+        if (e.actionMasked == MotionEvent.ACTION_DOWN && ids.isNotEmpty()) ended(ids.toList(), now, cancelled = true)
         for (i in 0 until e.pointerCount) {
             val id = e.getPointerId(i)
             xs[id] = e.getX(i)
             ys[id] = e.getY(i)
         }
-        val now = e.eventTime / 1000.0
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> began(e.getPointerId(0), now)
             MotionEvent.ACTION_POINTER_DOWN -> began(e.getPointerId(e.actionIndex), now)
