@@ -99,14 +99,22 @@ class ScreenshotTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
     private val app get() = (inst.targetContext.applicationContext as PocketMacApplication).state
 
-    private fun shot(name: String) {
-        // CI emulators draw in software (seconds per frame): wait until the screen has settled.
-        SystemClock.sleep(1000)
-        inst.waitForIdleSync()
-        runCatching { inst.uiAutomation.waitForIdle(2000, 20_000) }
-        val bmp = inst.uiAutomation.takeScreenshot() ?: return
-        val dir = File(inst.targetContext.filesDir, "screens").apply { mkdirs() }
-        File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    /** Waits until [expect] is on screen (read from the UI itself, not pixels), then saves a screenshot. */
+    private fun shot(name: String, expect: String) {
+        val deadline = SystemClock.uptimeMillis() + 40_000
+        var found = false
+        while (!found && SystemClock.uptimeMillis() < deadline) {
+            found = runCatching { inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(expect)?.isNotEmpty() == true }
+                .getOrDefault(false)
+            if (!found) SystemClock.sleep(500)
+        }
+        Log.i("PocketMacTest", "screen $name: '$expect' ${if (found) "shown" else "NOT shown"}")
+        SystemClock.sleep(3000)   // CI emulators draw in software (seconds per frame)
+        inst.uiAutomation.takeScreenshot()?.let { bmp ->
+            val dir = File(inst.targetContext.filesDir, "screens").apply { mkdirs() }
+            File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        assertTrue("$name: '$expect' never appeared", found)
     }
 
     @Test fun everyScreen() {
@@ -114,32 +122,30 @@ class ScreenshotTest {
             lastConnected = System.currentTimeMillis() - 3_600_000)
         inst.runOnMainSync { app.store.upsert(mac) }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            shot("1-home")
+            shot("1-home", "My Macs")
             inst.runOnMainSync { app.addForm = AddMacForm() }
-            shot("2-add-mac")
+            shot("2-add-mac", "Mac ID")
             inst.runOnMainSync { app.addForm = null; app.showSettings = true }
-            shot("3-settings")
+            shot("3-settings", "Trackpad speed")
             inst.runOnMainSync { app.showSettings = false }
 
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             SystemClock.sleep(1500)
             val stream = recordedStream("stream-hevc.bin")
             inst.runOnMainSync { app.startDemo(mac, stream) }
-            SystemClock.sleep(3000)
-            shot("4-remote")
+            shot("4-remote", "Disconnect")
             val fps = app.session?.fps ?: 0
             Log.i("PocketMacTest", "remote screen fps=$fps")
 
             inst.runOnMainSync { app.session?.view?.setKeyboard(true) }
-            SystemClock.sleep(5000)   // the emulator's keyboard takes a few seconds to appear the first time
-            shot("5-keyboard")
+            shot("5-keyboard", "esc")
             inst.runOnMainSync { app.session?.view?.setKeyboard(false); app.session?.toolbarOpen = false }
-            shot("6-toolbar-hidden")
+            shot("6-toolbar-hidden", "Show toolbar")
 
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             inst.runOnMainSync { app.session?.toolbarOpen = true }
             SystemClock.sleep(1500)
-            shot("7-remote-portrait")
+            shot("7-remote-portrait", "Disconnect")
             inst.runOnMainSync { app.closeSession() }
             assertTrue("video plays on the remote screen (fps=$fps)", fps > 0)
         }
