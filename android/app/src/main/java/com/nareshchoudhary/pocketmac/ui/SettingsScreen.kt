@@ -166,6 +166,7 @@ private fun Segmented(title: String, options: List<String>, selected: Int, onSel
                     selected = i == selected,
                     onClick = { onSelect(i) },
                     shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
+                    icon = {},   // the colour already shows the choice; a tick would squeeze the label
                     label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium) },
                 )
             }
