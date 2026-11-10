@@ -78,7 +78,15 @@ jobs:
           gradle-version: "9.6.0"
 
       - name: Build app and test APKs
-        run: gradle -p android assembleDebug assembleDebugAndroidTest --stacktrace
+        run: |
+          gradle -p android assembleDebug assembleDebugAndroidTest --stacktrace
+          gradle --stop
+
+      - name: Free disk space for the emulator
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/local/lib/android/sdk/ndk /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/local/julia* || true
+          df -h /
 
       - name: Enable KVM (fast emulator)
         run: |
@@ -94,6 +102,7 @@ jobs:
           target: google_apis
           cores: 4
           ram-size: 4096M
+          disk-size: 3000M
           emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
