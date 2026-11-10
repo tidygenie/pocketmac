@@ -1,0 +1,40 @@
+# Builds the Mac app and runs the end-to-end tests against a throw-away test host
+# (login, pairing rules, fake Mac detection, wrong-password lockout, both video codecs,
+# privacy mode in dry-run). Uploads PocketMac-Host.dmg (Apple Silicon + Intel) for testing.
+name: Build Mac app (.dmg)
+
+on:
+  push:
+    paths:
+      - "Host/**"
+      - "Shared/**"
+      - "tools/**"
+      - ".github/workflows/build-mac.yml"
+  pull_request:
+    paths:
+      - "Host/**"
+      - "Shared/**"
+      - "tools/**"
+  workflow_dispatch:
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: End-to-end tests
+        run: |
+          tools/build-host.sh
+          tools/build-pmtest.sh
+          tools/run-tests.sh "$RUNNER_TEMP/e2e"
+
+      - name: Package
+        run: tools/make-dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketMac-Host-dmg
+          path: dist/PocketMac-Host.dmg
+          if-no-files-found: error

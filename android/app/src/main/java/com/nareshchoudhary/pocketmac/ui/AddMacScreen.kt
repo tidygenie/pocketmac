@@ -138,7 +138,7 @@ fun AddMacScreen(app: AppState, form: AddMacForm) {
                 value = form.address,
                 onValueChange = { form.address = it.trim() },
                 label = { Text("Internet address (optional)") },
-                placeholder = { Text("e.g. naresh-macbook-air or 100.101.102.103") },
+                placeholder = { Text("e.g. macbook-air or 100.101.102.103") },
                 singleLine = true,
                 supportingText = {
                     Text("Leave empty if you only use it on the same Wi-Fi. For anywhere access, install Tailscale on the Mac and this phone " +

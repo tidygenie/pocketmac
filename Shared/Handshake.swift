@@ -32,7 +32,7 @@ enum HandshakeErrorCode: UInt8 {
     var userMessage: String {
         switch self {
         case .badCredentials: return "Wrong password."
-        case .notAuthorized: return "This iPhone isn't paired. On the Mac, click “Pair new iPhone” and try again."
+        case .notAuthorized: return "This phone isn’t paired. On the Mac, click “Pair new phone” and try again."
         case .lockedOut: return "Too many wrong attempts. Try again later."
         case .badVersion: return "App and Mac host versions don't match. Update both."
         case .notConfigured: return "The Mac host has no password yet. Set one in PocketMac Host on the Mac."

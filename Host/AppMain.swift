@@ -74,6 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         termSource = term
 
         NSLog("PocketMac Host ready. ID \(DeviceID.pretty(config.deviceID)), port \(PocketMacPort)")
+        if let path = ProcessInfo.processInfo.environment["POCKETMAC_SNAPSHOT"] {   // CI screenshots only
+            showSettings()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.snapshotSettings(to: path) }
+            return
+        }
         if ProcessInfo.processInfo.environment["POCKETMAC_HEADLESS"] != nil { return }
         if !config.hasPassword || !CGPreflightScreenCaptureAccess() || !InputInjector.hasPermission {
             showSettings()
@@ -151,6 +156,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func disconnect() { server.disconnectAll() }
+
+    /// CI screenshots only: saves the settings window as the app draws it (no screen capture involved).
+    private func snapshotSettings(to path: String) {
+        guard let view = settingsWindow?.contentView?.superview ?? settingsWindow?.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        NSLog("PMDEBUG settings window saved to \(path)")
+    }
 
     @objc func showSettings() {
         if settingsWindow == nil {

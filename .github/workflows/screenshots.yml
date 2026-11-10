@@ -1,0 +1,100 @@
+# Takes the README screenshots of the iPhone app (in the iOS Simulator) and of the
+# Mac app's window. The phone connects to a test host that streams a made-up demo
+# desktop (Host/DemoDesktop.swift), so no real screen is ever shown.
+# Android screenshots come from the "Build Android app" workflow (device-results).
+name: Screenshots (iPhone + Mac)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  shots:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the Mac app and start a demo test host
+        run: |
+          tools/build-host.sh
+          mkdir -p shots
+          ID=$(POCKETMAC_TEST_PATTERN=desktop tools/test-host.sh "$RUNNER_TEMP/host" 47811 | awk '{print $2}')
+          test -n "$ID"
+          echo "HOST_ID=$ID" >> "$GITHUB_ENV"
+
+      - name: Mac app window
+        run: |
+          mkdir -p "$RUNNER_TEMP/win/cfg"
+          POCKETMAC_CONFIG_DIR="$RUNNER_TEMP/win/cfg" POCKETMAC_PORT=47812 POCKETMAC_LOOPBACK=1 POCKETMAC_PRIVACY_DRYRUN=1 \
+          POCKETMAC_SNAPSHOT="$PWD/shots/mac-window.png" \
+            "build/PocketMac Host.app/Contents/MacOS/PocketMacHost" > "$RUNNER_TEMP/win/log" 2>&1 &
+          PID=$!
+          for i in $(seq 1 30); do [ -f shots/mac-window.png ] && break; sleep 1; done
+          screencapture -x shots/mac-screen.png || echo "screencapture not allowed here"
+          kill $PID || true
+          tail -20 "$RUNNER_TEMP/win/log"
+
+      - name: Build the iPhone app for the Simulator
+        run: |
+          brew install xcodegen
+          cd iOS && xcodegen generate
+          xcodebuild -project PocketMac.xcodeproj -scheme PocketMac -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build | tail -20
+          test -d build/Build/Products/Debug-iphonesimulator/PocketMac.app
+
+      - name: Start the newest iPhone Pro simulator
+        run: |
+          UDID=$(python3 - <<'EOF'
+          import json, re, subprocess
+          d = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          best = None
+          for runtime, devices in d["devices"].items():
+              v = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              for dev in devices if v else []:
+                  n = re.fullmatch(r"iPhone (\d+) Pro", dev["name"])
+                  if n:
+                      key = (int(v[1]), int(v[2]), int(n[1]))
+                      if best is None or key > best[0]:
+                          best = (key, dev["udid"], dev["name"], runtime)
+          print(best[1])
+          EOF
+          )
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 \
+            --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 --operatorName ""
+          xcrun simctl install "$UDID" iOS/build/Build/Products/Debug-iphonesimulator/PocketMac.app
+
+      - name: iPhone screenshots
+        run: |
+          APP=com.nareshchoudhary.pocketmac
+          CONNECT="$HOST_ID|testpass123|127.0.0.1|47811"
+          shoot() {   # name, seconds to wait, then VAR=value pairs for the app
+            local name=$1 wait=$2; shift 2
+            xcrun simctl terminate "$UDID" $APP 2>/dev/null || true
+            sleep 1
+            env "$@" xcrun simctl launch "$UDID" $APP
+            sleep "$wait"
+            xcrun simctl io "$UDID" screenshot "shots/iphone-$name.png"
+          }
+          shoot home 8 SIMCTL_CHILD_POCKETMAC_DEMO=home
+          shoot add-mac 8 SIMCTL_CHILD_POCKETMAC_DEMO=add
+          shoot settings 8 SIMCTL_CHILD_POCKETMAC_DEMO=settings
+          shoot remote-portrait 12 SIMCTL_CHILD_POCKETMAC_AUTOCONNECT="$CONNECT"
+          shoot remote-landscape 12 SIMCTL_CHILD_POCKETMAC_AUTOCONNECT="$CONNECT" SIMCTL_CHILD_POCKETMAC_LANDSCAPE=1
+          shoot keyboard 14 SIMCTL_CHILD_POCKETMAC_AUTOCONNECT="$CONNECT" SIMCTL_CHILD_POCKETMAC_LANDSCAPE=1 SIMCTL_CHILD_POCKETMAC_KEYBOARD=1
+          ls -la shots
+
+      - name: Logs
+        if: always()
+        run: |
+          tail -40 "$RUNNER_TEMP/host/host.log" || true
+          xcrun simctl spawn "$UDID" log show --last 3m --predicate 'eventMessage CONTAINS "PMDEBUG"' --style compact | tail -20 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots/

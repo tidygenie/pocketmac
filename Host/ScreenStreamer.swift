@@ -436,8 +436,13 @@ final class TestPatternSource {
     private var pool: CVPixelBufferPool?
     private var tick = 0
 
+    /// POCKETMAC_TEST_PATTERN=desktop: a made-up desktop with a moving pointer (screenshots, demos).
+    private let desktop: CGImage?
+
     init(width: Int, height: Int, fps: Int, queue: DispatchQueue, output: @escaping (CVPixelBuffer) -> Void) {
         self.width = width; self.height = height; self.fps = fps; self.queue = queue; self.output = output
+        desktop = ProcessInfo.processInfo.environment["POCKETMAC_TEST_PATTERN"] == "desktop"
+            ? DemoDesktop.background(width: width, height: height) : nil
         let attrs: [CFString: Any] = [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
                                       kCVPixelBufferWidthKey: width, kCVPixelBufferHeightKey: height,
                                       kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
@@ -467,6 +472,16 @@ final class TestPatternSource {
         let ctx = CGContext(data: CVPixelBufferGetBaseAddress(pb), width: width, height: height, bitsPerComponent: 8,
                             bytesPerRow: CVPixelBufferGetBytesPerRow(pb), space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+        if let desktop {
+            ctx.draw(desktop, in: CGRect(x: 0, y: 0, width: width, height: height))
+            // The pointer glides over the welcome window.
+            let t = Double(tick) / Double(fps), w = Double(width), h = Double(height)
+            DemoDesktop.drawPointer(ctx, tip: CGPoint(x: w * (0.36 + 0.16 * sin(t * 0.9)), y: h * (0.5 + 0.12 * sin(t * 1.4 + 1))),
+                                    scale: CGFloat(width) / 1920)
+            CVPixelBufferUnlockBaseAddress(pb, [])
+            output(pb)
+            return
+        }
         ctx.setFillColor(CGColor(red: 0.08, green: 0.1, blue: 0.16, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         for i in 0..<12 {

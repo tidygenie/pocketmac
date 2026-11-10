@@ -9,6 +9,10 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/build-android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/build-android.yml"
   workflow_dispatch:
 
 jobs:
@@ -100,6 +104,7 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
+          profile: pixel_6
           cores: 4
           ram-size: 4096M
           disk-size: 3000M

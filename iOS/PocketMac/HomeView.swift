@@ -182,7 +182,7 @@ struct AddMacView: View {
                 } header: { Text("Name") }
 
                 Section {
-                    TextField("e.g. naresh-macbook-air or 100.101.102.103", text: $form.address)
+                    TextField("e.g. macbook-air or 100.101.102.103", text: $form.address)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)

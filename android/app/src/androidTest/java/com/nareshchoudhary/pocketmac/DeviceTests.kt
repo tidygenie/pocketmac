@@ -107,12 +107,23 @@ class ScreenshotTest {
         compose.onAllNodesWithText(text, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() ||
             compose.onAllNodesWithContentDescription(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
-    /** Waits until [expect] is on screen, then saves a screenshot. */
-    private fun shot(name: String, expect: String) {
-        compose.waitUntil(60_000) { onScreen(expect) }
+    /**
+     * Waits until [expect] is on screen, then saves a screenshot once the picture has
+     * settled: CI emulators draw in software, sometimes several seconds per frame.
+     */
+    private fun shot(name: String, expect: String, settleMs: Long = 30_000) {
+        compose.waitUntil(90_000) { onScreen(expect) }
         Log.i("PocketMacTest", "screen $name: '$expect' shown")
-        SystemClock.sleep(3000)   // CI emulators draw in software (seconds per frame)
-        inst.uiAutomation.takeScreenshot()?.let { bmp ->
+        var last: Bitmap? = null
+        val deadline = SystemClock.uptimeMillis() + settleMs
+        while (true) {
+            SystemClock.sleep(1500)
+            val bmp = inst.uiAutomation.takeScreenshot() ?: continue
+            val settled = last?.sameAs(bmp) == true
+            last = bmp
+            if (settled || SystemClock.uptimeMillis() > deadline) break
+        }
+        last?.let { bmp ->
             val dir = File(inst.targetContext.filesDir, "screens").apply { mkdirs() }
             File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
@@ -121,7 +132,7 @@ class ScreenshotTest {
     private fun orientation(o: Int) = compose.runOnUiThread { compose.activity.requestedOrientation = o }
 
     @Test fun everyScreen() {
-        val mac = SavedMac("K7QM4XPA9TZC", "Naresh's MacBook Air", "naresh-macbook-air",
+        val mac = SavedMac("K7QM4XPA9TZC", "MacBook Air", "macbook-air",
             lastConnected = System.currentTimeMillis() - 3_600_000)
         compose.runOnUiThread { app.store.upsert(mac) }
         shot("1-home", "My Macs")
@@ -134,10 +145,10 @@ class ScreenshotTest {
 
         orientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
         SystemClock.sleep(1500)
-        val stream = recordedStream("stream-hevc.bin")
+        // The demo desktop recorded from a test host (tools/make-vectors.sh), never a real screen.
+        val stream = recordedStream("demo-hevc.bin")
         compose.runOnUiThread { app.startDemo(mac, stream) }
         shot("4-remote", "Disconnect")
-        SystemClock.sleep(2000)
         val fps = app.session?.fps ?: 0
         Log.i("PocketMacTest", "remote screen fps=$fps")
 
