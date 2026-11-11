@@ -159,8 +159,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     /// CI screenshots only: saves the settings window as the app draws it (no screen capture involved).
     private func snapshotSettings(to path: String) {
-        guard let view = settingsWindow?.contentView?.superview ?? settingsWindow?.contentView,
-              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        guard let view = settingsWindow?.contentView?.superview ?? settingsWindow?.contentView else { return }
+        let size = view.bounds.size   // drawn at 2× so it's sharp on Retina screens
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+        rep.size = size
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         NSLog("PMDEBUG settings window saved to \(path)")

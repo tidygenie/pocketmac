@@ -19,7 +19,10 @@ L="$T/host.log"
 n() { grep -c "$1" "$L"; }
 q() { build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/A.key" --seconds 1 "$@" > /dev/null 2>&1; }
 dark0=$(n "Mac screen dark"); lock0=$(n "locking Mac"); q; sleep 1
-t "connect darkens the Mac screen" [ "$(n "Mac screen dark")" -gt "$dark0" ]
+# Macs without a built-in screen (Mac mini, CI virtual machines) have nothing to darken.
+builtin=$(swift -e 'import CoreGraphics; var ids = [CGDirectDisplayID](repeating: 0, count: 16); var n: UInt32 = 0; CGGetActiveDisplayList(16, &ids, &n); print(ids.prefix(Int(n)).contains { CGDisplayIsBuiltin($0) != 0 } ? 1 : 0)' 2>/dev/null || echo 1)
+[ "$builtin" = 1 ] && t "connect darkens the Mac screen" [ "$(n "Mac screen dark")" -gt "$dark0" ] \
+  || echo "== (no built-in screen on this Mac: skipping the screen-darkening checks)"
 t "tapping ✕ on the phone locks the Mac right away" [ "$(n "locking Mac")" -gt "$lock0" ]
 lock1=$(n "locking Mac"); drop1=$(n "connection dropped"); q --pause-before-close; sleep 0.5
 t "phone app going to background is treated as a drop (grace period)" [ "$(n "connection dropped")" -gt "$drop1" ]
@@ -29,7 +32,9 @@ lockA=$(n "locking Mac"); q --pause-before-close; q --pause-before-close; sleep 
 t "reconnecting within the grace period cancels the pending lock" [ "$(n "locking Mac")" -eq "$lockA" ]
 sleep 3.5
 t "no reconnect → Mac locks after the grace period" [ "$(n "locking Mac")" -gt "$lockA" ]
-t "brightness restored after every lock" [ "$(n "brightness restored")" -ge "$(n "locking Mac")" ]
+# Count from the first darkening (a sleeping display at the start has nothing to restore).
+since_dark() { sed -n '/Mac screen dark/,$p' "$L" | grep -c "$1"; }
+[ "$builtin" = 1 ] && t "brightness restored after every lock" [ "$(since_dark "brightness restored")" -ge "$(since_dark "locking Mac")" ]
 t "paired phone + wrong password is refused" build/pmtest --id "$ID" --password nope "${P[@]}" --identity "$T/A.key" --expect-fail badCredentials
 t "a second phone is refused once one is paired (even with right password)" build/pmtest --id "$ID" --password testpass123 "${P[@]}" --identity "$T/B.key" --expect-fail notAuthorized
 t "fake Mac (ID doesn't match key) is detected" build/pmtest --id "1N81-1EPB-JZXA" --password testpass123 "${P[@]}" --identity "$T/A.key" --expect-fail protocolError

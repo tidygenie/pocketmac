@@ -14,13 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build the Mac app and start a demo test host
+      - name: Build the Mac app
         run: |
           tools/build-host.sh
           mkdir -p shots
-          ID=$(POCKETMAC_TEST_PATTERN=desktop tools/test-host.sh "$RUNNER_TEMP/host" 47811 | awk '{print $2}')
-          test -n "$ID"
-          echo "HOST_ID=$ID" >> "$GITHUB_ENV"
 
       - name: Mac app window
         run: |
@@ -63,6 +60,11 @@ jobs:
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
+          # No "slide to type" introduction over the keyboard.
+          for d in com.apple.Preferences com.apple.keyboard.preferences; do
+            xcrun simctl spawn "$UDID" defaults write $d DidShowContinuousPathIntroduction -bool true
+            xcrun simctl spawn "$UDID" defaults write $d KeyboardContinuousPathEnabled -bool false
+          done
           xcrun simctl status_bar "$UDID" override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 \
             --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 --operatorName ""
           xcrun simctl install "$UDID" iOS/build/Build/Products/Debug-iphonesimulator/PocketMac.app
@@ -70,7 +72,12 @@ jobs:
       - name: iPhone screenshots
         run: |
           APP=com.nareshchoudhary.pocketmac
-          CONNECT="$HOST_ID|testpass123|127.0.0.1|47811"
+          # The unsigned Simulator build can't keep its key in the Keychain, so every launch
+          # is a "new phone": give each connected shot its own fresh demo host to pair with.
+          connect() {   # n → a fresh host on port 4782n
+            local id=$(POCKETMAC_TEST_PATTERN=desktop tools/test-host.sh "$RUNNER_TEMP/host$1" $((47820+$1)) | awk '{print $2}')
+            echo "SIMCTL_CHILD_POCKETMAC_AUTOCONNECT=$id|testpass123|127.0.0.1|$((47820+$1))"
+          }
           shoot() {   # name, seconds to wait, then VAR=value pairs for the app
             local name=$1 wait=$2; shift 2
             xcrun simctl terminate "$UDID" $APP 2>/dev/null || true
@@ -82,15 +89,17 @@ jobs:
           shoot home 8 SIMCTL_CHILD_POCKETMAC_DEMO=home
           shoot add-mac 8 SIMCTL_CHILD_POCKETMAC_DEMO=add
           shoot settings 8 SIMCTL_CHILD_POCKETMAC_DEMO=settings
-          shoot remote-portrait 12 SIMCTL_CHILD_POCKETMAC_AUTOCONNECT="$CONNECT"
-          shoot remote-landscape 12 SIMCTL_CHILD_POCKETMAC_AUTOCONNECT="$CONNECT" SIMCTL_CHILD_POCKETMAC_LANDSCAPE=1
-          shoot keyboard 14 SIMCTL_CHILD_POCKETMAC_AUTOCONNECT="$CONNECT" SIMCTL_CHILD_POCKETMAC_LANDSCAPE=1 SIMCTL_CHILD_POCKETMAC_KEYBOARD=1
+          shoot remote-portrait 12 "$(connect 1)"
+          shoot remote-landscape 12 "$(connect 2)" SIMCTL_CHILD_POCKETMAC_LANDSCAPE=1
+          shoot keyboard 16 "$(connect 3)" SIMCTL_CHILD_POCKETMAC_LANDSCAPE=1 SIMCTL_CHILD_POCKETMAC_KEYBOARD=1
+          # Landscape shots come out sideways (the Simulator saves its portrait screen).
+          for f in remote-landscape keyboard; do sips -r 270 "shots/iphone-$f.png" > /dev/null; done
           ls -la shots
 
       - name: Logs
         if: always()
         run: |
-          tail -40 "$RUNNER_TEMP/host/host.log" || true
+          tail -20 "$RUNNER_TEMP"/host*/host.log || true
           xcrun simctl spawn "$UDID" log show --last 3m --predicate 'eventMessage CONTAINS "PMDEBUG"' --style compact | tail -20 || true
 
       - uses: actions/upload-artifact@v4
